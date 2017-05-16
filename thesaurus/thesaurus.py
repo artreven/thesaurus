@@ -198,6 +198,30 @@ class Thesaurus(rdflib.graph.Graph):
         )
         return G, pos
 
+    def get_importance_ranking(self, method='pr'):
+        """
+        :param method: one of: 'pr' - PageRank, 'betweenness'. More to follow. 
+        :return: dict {node: score}
+        """
+        import networkx as nx
+        G = nx.DiGraph()
+
+        nodes = [self.get_pref_label(x).toPython() for x in
+                 self.get_all_concepts()]
+        G.add_nodes_from(nodes)
+        for edge in self.triples((None, rdflib.namespace.SKOS.broader, None)):
+            broader = self.get_pref_label(edge[0]).toPython()
+            narrower = self.get_pref_label(edge[2]).toPython()
+            G.add_edge(narrower, broader)
+
+        if method == 'betweenness':
+            result = nx.betweenness_centrality(G)
+        elif method == 'pr':
+            result = nx.pagerank_scipy(G)
+        else:
+            raise Exception('Method {} not implemented yet'.format(method))
+        return result
+
     def __iter__(self):
         all_cpts = set(self.get_all_concepts())
         for x in all_cpts:
@@ -245,15 +269,21 @@ if __name__ == '__main__':
         pp_api.get_corpus_analysis_graphs(corpus_id)
 
     the = Thesaurus()
-    the_path = 'the.n3'
+    the_path = 'misc/the.n3'
     if os.path.exists(the_path):
         the.parse(the_path, format='n3')
     else:
         the.query_and_add_cpt_frequencies(sparql_endpoint, cpt_occur_graph_id,
                                           server, pid, auth_data)
         the.serialize(the_path, format='n3')
-    G, pos = the.plot_layout()
 
-    nx.draw(G, pos, with_labels=False, arrows=True, node_size=50)
-    plt.title('draw_networkx')
-    plt.savefig('nx_test.png')
+    # G, pos = the.plot_layout()
+    # nx.draw(G, pos, with_labels=False, arrows=True, node_size=50)
+    # plt.title('draw_networkx')
+    # plt.savefig('nx_test.png')
+
+    pr = the.get_importance_ranking()
+    print('PageRank: ', sorted(pr.items(), key=lambda x: x[1], reverse=True)[:10])
+
+    bw = the.get_importance_ranking('betweenness')
+    print('betweenness: ', sorted(bw.items(), key=lambda x: x[1], reverse=True)[:10])
