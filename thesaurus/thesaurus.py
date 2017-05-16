@@ -11,16 +11,8 @@ class Thesaurus(rdflib.graph.Graph):
     A class for thesauri. Especially useful if you have a corpus for tagging
     with this thesaurus.
     
-    In order to get the cumulative concept frequencies you may want to do:
-    > cpt_freqs = pp_api.get_cpt_corpus_freqs(corpus_id, server, pid, auth_data)
-    >
-    > the = Thesaurus()
-    > for cpt in cpt_freqs:
-    >     cpt_uri = cpt['concept']['uri']
-    >     cpt_freq = cpt['frequency']
-    >     cpt_path = pp_api.get_cpt_path(cpt_uri, server, pid, auth_data)
-    >     the.add_path(cpt_path)
-    >     the.add_frequencies(cpt_uri, cpt_freq)
+    In order to get the cumulative concept frequencies you may want to call
+     `query_and_add_cpt_frequencies` method.
     """
 
     freq_predicate = rdflib.URIRef(':frequency')
@@ -40,7 +32,11 @@ class Thesaurus(rdflib.graph.Graph):
         s_pl = self.triples((None,
                              rdflib.namespace.RDF.type,
                              rdflib.namespace.SKOS.Concept))
-        return [x[0].toPython() for x in s_pl]
+        return [x[0] for x in s_pl]
+
+    def get_pref_label(self, uri):
+        pl = self.value(rdflib.URIRef(uri), rdflib.namespace.SKOS.prefLabel)
+        return pl
 
     def add_path(self, path):
         prev_uriref = None
@@ -106,7 +102,8 @@ class Thesaurus(rdflib.graph.Graph):
             cpt_freq = cpt_atts['frequency']
             cpt_path = pp_api.get_cpt_path(cpt_uri, server, pid, session=s)
             self.add_path(cpt_path)
-            self.add_frequencies(cpt_uri, cpt_freq)
+            if cpt_freq > 0:
+                self.add_frequencies(cpt_uri, cpt_freq)
 
     def get_lcs(self, c1_uri, c2_uri):
         c1_uri = rdflib.URIRef(c1_uri)
@@ -140,12 +137,24 @@ class Thesaurus(rdflib.graph.Graph):
                             default=[None, rdflib.Literal(float('Inf'))])
         return lcs, freq.value
 
-    def get_freq(self, c_uri):
+    def get_cumulative_freq(self, c_uri):
+        c_uri = rdflib.URIRef(c_uri)
         return self.value(
             subject=c_uri,
             predicate=self.freq_predicate,
             default=rdflib.Literal(0)
         ).value
+
+    def get_own_freq(self, c_uri):
+        c_uri = rdflib.URIRef(c_uri)
+        cum_freq = self.get_cumulative_freq(c_uri)
+        children = self.objects(
+            subject=c_uri,
+            predicate=rdflib.namespace.SKOS.narrower
+        )
+        children_cum_freq = sum(self.get_cumulative_freq(child)
+                                for child in children)
+        return cum_freq - children_cum_freq
 
     def get_lin_similarity(self, c1_uri, c2_uri):
         if c1_uri == c2_uri:
@@ -162,16 +171,36 @@ class Thesaurus(rdflib.graph.Graph):
         if lcs is None or c1_freq == 0 or c2_freq == 0:
             return 0
         else:
-            top_freq = self.get_freq(self.top_uri)
+            top_freq = self.get_cumulative_freq(self.top_uri)
             score = (2 * np.log(lcs_freq/top_freq) /
                      (np.log(c1_freq/top_freq) + np.log(c2_freq/top_freq)))
             assert 0. <= score <= 1, print(lcs, score)
             return score
 
+    def plot_layout(self):
+        """
+        Calculate and return positions of nodes in the taxonomy tree for 
+        drawing. The labels are the prefLabels of the concepts.
+        
+        :return: graph, positions of nodes 
+        """
+        import networkx as nx
+        G = nx.DiGraph()
+
+        nodes = [self.get_pref_label(x).toPython() for x in self.get_all_concepts()]
+        G.add_nodes_from(nodes)
+        for edge in self.triples((None, rdflib.namespace.SKOS.broader, None)):
+            broader = self.get_pref_label(edge[0]).toPython()
+            narrower = self.get_pref_label(edge[2]).toPython()
+            G.add_edge(narrower, broader)
+        pos = nx.drawing.nx_agraph.graphviz_layout(
+            G, prog='twopi', args='-Goverlap=scalexy -Nroot=true -Groot=:T'
+        )
+        return G, pos
+
     def __iter__(self):
         all_cpts = set(self.get_all_concepts())
-        all_nonT_cpts = all_cpts - {self.top_uri.toPython()}
-        for x in all_nonT_cpts:
+        for x in all_cpts:
             yield x
 
     def pickle(self, path):
@@ -186,11 +215,10 @@ class Thesaurus(rdflib.graph.Graph):
 
 def query_cpt_freqs(sparql_endpoint, cpt_occur_graph):
     q_cpts = """
-    select distinct ?s ?label ?pl ?freq ?cpt where {
+    select distinct ?s ?label ?freq ?cpt where {
       ?s <http://schema.semantic-web.at/ppcm/2013/5/frequencyInCorpus> ?freq .
       ?s <http://schema.semantic-web.at/ppcm/2013/5/mainLabel> ?label .
       ?s <http://schema.semantic-web.at/ppcm/2013/5/concept> ?cpt .
-      ?cpt <http://www.w3.org/2004/02/skos/core#prefLabel> ?pl
     }
     """
     rs = pp_api.query_sparql_endpoint(sparql_endpoint,
@@ -199,13 +227,33 @@ def query_cpt_freqs(sparql_endpoint, cpt_occur_graph):
     results = dict()
     for r in rs:
         cpt_atts = {
-            'frequency': float(r[3]),
-            'prefLabel': str(r[2])
+            'frequency': float(r[2]),
+            'mainLabel': str(r[1])
         }
-        cpt_uri = r[4]
+        cpt_uri = r[3]
         results[cpt_uri] = cpt_atts
     return results
 
 
 if __name__ == '__main__':
-    pass
+    import networkx as nx
+    import os
+    import matplotlib.pyplot as plt
+    from pp_api.server_data.custom_apps import auth_data, pid, server, corpus_id, sparql_endpoint
+
+    corpusgraph_id, termsgraph_id, cpt_occur_graph_id, cooc_graph = \
+        pp_api.get_corpus_analysis_graphs(corpus_id)
+
+    the = Thesaurus()
+    the_path = 'the.n3'
+    if os.path.exists(the_path):
+        the.parse(the_path, format='n3')
+    else:
+        the.query_and_add_cpt_frequencies(sparql_endpoint, cpt_occur_graph_id,
+                                          server, pid, auth_data)
+        the.serialize(the_path, format='n3')
+    G, pos = the.plot_layout()
+
+    nx.draw(G, pos, with_labels=False, arrows=True, node_size=50)
+    plt.title('draw_networkx')
+    plt.savefig('nx_test.png')
