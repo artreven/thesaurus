@@ -236,6 +236,22 @@ class Thesaurus(rdflib.graph.Graph):
         out = 'Thesaurus'
         return out
 
+    def parse_file_and_add_frequencies(self,
+                                       sparql_endpoint,
+                                       cpt_freq_graph,
+                                       file_name,
+                                       format='n3',
+                                       **kwargs):
+
+        cpt_freqs = query_cpt_freqs(sparql_endpoint, cpt_freq_graph)
+        print("Parsing "+file_name)
+        self.parse(file_name, format=format)
+        print("Adding freqs")
+        for cpt_uri in cpt_freqs:
+            cpt_atts = cpt_freqs[cpt_uri]
+            cpt_freq = cpt_atts['frequency']
+            if cpt_freq > 0:
+                self.add_frequencies(cpt_uri, cpt_freq)
 
 def query_cpt_freqs(sparql_endpoint, cpt_occur_graph):
     q_cpts = """
@@ -257,6 +273,11 @@ def query_cpt_freqs(sparql_endpoint, cpt_occur_graph):
         cpt_uri = r[3]
         results[cpt_uri] = cpt_atts
     return results
+
+
+
+
+
 
 
 if __name__ == '__main__':
