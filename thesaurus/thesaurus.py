@@ -172,8 +172,12 @@ class Thesaurus(rdflib.graph.Graph):
             return 0
         else:
             top_freq = self.get_cumulative_freq(self.top_uri)
+            p1 = np.log(c1_freq/top_freq)
+            p2 = np.log(c2_freq/top_freq)
+            if p1 + p2 == 0:
+                return 1
             score = (2 * np.log(lcs_freq/top_freq) /
-                     (np.log(c1_freq/top_freq) + np.log(c2_freq/top_freq)))
+                     (p1 + p2))
             assert 0. <= score <= 1, print(lcs, score)
             return score
 
