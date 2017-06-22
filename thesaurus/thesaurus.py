@@ -191,7 +191,8 @@ class Thesaurus(rdflib.graph.Graph):
         import networkx as nx
         G = nx.DiGraph()
 
-        nodes = [self.get_pref_label(x).toPython() for x in self.get_all_concepts()]
+        nodes = [self.get_pref_label(x).toPython()
+                 for x in self.get_all_concepts()]
         G.add_nodes_from(nodes)
         for edge in self.triples((None, rdflib.namespace.SKOS.broader, None)):
             broader = self.get_pref_label(edge[0]).toPython()
@@ -248,14 +249,13 @@ class Thesaurus(rdflib.graph.Graph):
                                        **kwargs):
 
         cpt_freqs = query_cpt_freqs(sparql_endpoint, cpt_freq_graph)
-        #print("Parsing "+file_name)
         self.parse(file_name, format=format)
-        #print("Adding freqs")
         for cpt_uri in cpt_freqs:
             cpt_atts = cpt_freqs[cpt_uri]
             cpt_freq = cpt_atts['frequency']
             if cpt_freq > 0:
                 self.add_frequencies(cpt_uri, cpt_freq)
+
 
 def query_cpt_freqs(sparql_endpoint, cpt_occur_graph):
     q_cpts = """
@@ -277,11 +277,6 @@ def query_cpt_freqs(sparql_endpoint, cpt_occur_graph):
         cpt_uri = r[3]
         results[cpt_uri] = cpt_atts
     return results
-
-
-
-
-
 
 
 if __name__ == '__main__':
@@ -308,7 +303,11 @@ if __name__ == '__main__':
     # plt.savefig('nx_test.png')
 
     pr = the.get_importance_ranking()
-    print('PageRank: ', sorted(pr.items(), key=lambda x: x[1], reverse=True)[:10])
+    print('PageRank: ', sorted(pr.items(),
+                               key=lambda x: x[1],
+                               reverse=True)[:10])
 
     bw = the.get_importance_ranking('betweenness')
-    print('betweenness: ', sorted(bw.items(), key=lambda x: x[1], reverse=True)[:10])
+    print('betweenness: ', sorted(bw.items(),
+                                  key=lambda x: x[1],
+                                  reverse=True)[:10])
