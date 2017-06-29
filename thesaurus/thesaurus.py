@@ -32,7 +32,16 @@ class Thesaurus(rdflib.graph.Graph):
         s_pl = self.triples((None,
                              rdflib.namespace.RDF.type,
                              rdflib.namespace.SKOS.Concept))
-        return [x[0] for x in s_pl]
+        return {x[0] for x in s_pl}
+
+    def get_leaves(self):
+        brs = {x[2] for x in self.triples((
+            None,
+            rdflib.namespace.SKOS.broader,
+            None
+        ))}
+        leaves = set(self.get_all_concepts()) - brs
+        return leaves
 
     def get_pref_label(self, uri):
         pl = self.value(rdflib.URIRef(uri), rdflib.namespace.SKOS.prefLabel)
@@ -75,14 +84,14 @@ class Thesaurus(rdflib.graph.Graph):
     def add_frequencies(self, cpt_uri, cpt_freq, path=None):
         if path is None:
             uriref = rdflib.URIRef(cpt_uri)
-            brs = [x[2] for x in self.triples((
+            brs = {x[2] for x in self.triples((
                 uriref,
                 rdflib.namespace.SKOS.broader * '*',
                 None
-            ))]
+            ))}
             path = brs
         else:
-            path = [x[0] for x in path]
+            path = {x[0] for x in path}
         for uri in path:
             uriref = rdflib.URIRef(uri)
             old_freq = self.value(
@@ -94,16 +103,31 @@ class Thesaurus(rdflib.graph.Graph):
 
     def query_and_add_cpt_frequencies(self, sparql_endpoint, cpt_freq_graph,
                                       server, pid, auth_data):
+        # self.query_thesaurus(pid=pid, server=server, auth_data=auth_data)
         cpt_freqs = query_cpt_freqs(sparql_endpoint, cpt_freq_graph)
-        s = requests.session()
-        s.auth = auth_data
         for cpt_uri in cpt_freqs:
             cpt_atts = cpt_freqs[cpt_uri]
             cpt_freq = cpt_atts['frequency']
-            cpt_path = pp_api.get_cpt_path(cpt_uri, server, pid, session=s)
-            self.add_path(cpt_path)
+            # cpt_path = pp_api.get_cpt_path(cpt_uri, server, pid, session=s)
+            # self.add_path(cpt_path)
             if cpt_freq > 0:
                 self.add_frequencies(cpt_uri, cpt_freq)
+
+    def query_thesaurus(self, pid, server, auth_data):
+        r = pp_api.export_project(
+            pid=pid, server=server,
+            auth_data=auth_data
+        )
+        self.parse(data=r, format='n3')
+        top_cpts = {x[0] for x in self.triples((
+            None,
+            rdflib.namespace.SKOS.topConceptOf,
+            None
+        ))}
+        for top_cpt in top_cpts:
+            self.add(
+                (top_cpt, rdflib.namespace.SKOS.broader, self.top_uri)
+            )
 
     def get_lcs(self, c1_uri, c2_uri):
         c1_uri = rdflib.URIRef(c1_uri)
@@ -263,7 +287,12 @@ if __name__ == '__main__':
     import networkx as nx
     import os
     import matplotlib.pyplot as plt
-    from pp_api.server_data.custom_apps import auth_data, pid, server, corpus_id, sparql_endpoint
+    from pp_api.server_data.custom_apps import pid, server, \
+        corpus_id, sparql_endpoint, pp_sparql_endpoint, p_name
+
+    username = input('Username: ')
+    pw = input('Password: ')
+    auth_data = (username, pw)
 
     corpusgraph_id, termsgraph_id, cpt_occur_graph_id, cooc_graph = \
         pp_api.get_corpus_analysis_graphs(corpus_id)
@@ -273,14 +302,16 @@ if __name__ == '__main__':
     if os.path.exists(the_path):
         the.parse(the_path, format='n3')
     else:
-        the.query_and_add_cpt_frequencies(sparql_endpoint, cpt_occur_graph_id,
+        the.query_thesaurus(pid=pid, server=server, auth_data=auth_data)
+        the.query_and_add_cpt_frequencies(pp_sparql_endpoint + p_name,
+                                          cpt_occur_graph_id,
                                           server, pid, auth_data)
         the.serialize(the_path, format='n3')
 
-    # G, pos = the.plot_layout()
-    # nx.draw(G, pos, with_labels=False, arrows=True, node_size=50)
-    # plt.title('draw_networkx')
-    # plt.savefig('nx_test.png')
+    G, pos = the.plot_layout()
+    nx.draw(G, pos, with_labels=False, arrows=True, node_size=50)
+    plt.title('draw_networkx')
+    plt.savefig('misc/nx_test.png')
 
     pr = the.get_importance_ranking()
     print('PageRank: ', sorted(pr.items(), key=lambda x: x[1], reverse=True)[:10])
