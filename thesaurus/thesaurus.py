@@ -196,8 +196,12 @@ class Thesaurus(rdflib.graph.Graph):
             return 0
         else:
             top_freq = self.get_cumulative_freq(self.top_uri)
+            p1 = np.log(c1_freq/top_freq)
+            p2 = np.log(c2_freq/top_freq)
+            if p1 + p2 == 0:
+                return 1
             score = (2 * np.log(lcs_freq/top_freq) /
-                     (np.log(c1_freq/top_freq) + np.log(c2_freq/top_freq)))
+                     (p1 + p2))
             assert 0. <= score <= 1, print(lcs, score)
             return score
 
@@ -211,7 +215,8 @@ class Thesaurus(rdflib.graph.Graph):
         import networkx as nx
         G = nx.DiGraph()
 
-        nodes = [self.get_pref_label(x).toPython() for x in self.get_all_concepts()]
+        nodes = [self.get_pref_label(x).toPython()
+                 for x in self.get_all_concepts()]
         G.add_nodes_from(nodes)
         for edge in self.triples((None, rdflib.namespace.SKOS.broader, None)):
             broader = self.get_pref_label(edge[0]).toPython()
@@ -259,6 +264,21 @@ class Thesaurus(rdflib.graph.Graph):
     def __str__(self):
         out = 'Thesaurus'
         return out
+
+    def parse_file_and_add_frequencies(self,
+                                       sparql_endpoint,
+                                       cpt_freq_graph,
+                                       file_name,
+                                       format='n3',
+                                       **kwargs):
+
+        cpt_freqs = query_cpt_freqs(sparql_endpoint, cpt_freq_graph)
+        self.parse(file_name, format=format)
+        for cpt_uri in cpt_freqs:
+            cpt_atts = cpt_freqs[cpt_uri]
+            cpt_freq = cpt_atts['frequency']
+            if cpt_freq > 0:
+                self.add_frequencies(cpt_uri, cpt_freq)
 
 
 def query_cpt_freqs(sparql_endpoint, cpt_occur_graph):
@@ -314,7 +334,11 @@ if __name__ == '__main__':
     plt.savefig('misc/nx_test.png')
 
     pr = the.get_importance_ranking()
-    print('PageRank: ', sorted(pr.items(), key=lambda x: x[1], reverse=True)[:10])
+    print('PageRank: ', sorted(pr.items(),
+                               key=lambda x: x[1],
+                               reverse=True)[:10])
 
     bw = the.get_importance_ranking('betweenness')
-    print('betweenness: ', sorted(bw.items(), key=lambda x: x[1], reverse=True)[:10])
+    print('betweenness: ', sorted(bw.items(),
+                                  key=lambda x: x[1],
+                                  reverse=True)[:10])
