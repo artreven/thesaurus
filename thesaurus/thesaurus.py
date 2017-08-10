@@ -15,8 +15,9 @@ class Thesaurus(rdflib.graph.Graph):
      `query_and_add_cpt_frequencies` method.
     """
 
-    own_freq_predicate = rdflib.URIRef(':own_frequency')
-    cum_freq_predicate = rdflib.URIRef(':cum_frequency')
+own_freq_predicate = rdflib.URIRef(':own_frequency')
+cum_freq_predicate = rdflib.URIRef(':cum_frequency')
+num_descendants_predicate = rdflib.URIRef(':numDescendants')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -34,6 +35,12 @@ class Thesaurus(rdflib.graph.Graph):
                              rdflib.namespace.RDF.type,
                              rdflib.namespace.SKOS.Concept))
         return {x[0] for x in s_pl}
+
+    def get_all_concepts_and_labels(self, lang="en"):
+        s_pl = self.triples((None,
+                             rdflib.namespace.SKOS.prefLabel,
+                             None))
+        return {str(x[0]): str(x[2]) for x in s_pl if x[2].language == lang}
 
     def get_leaves(self):
         brs = {x[2] for x in self.triples((
@@ -112,6 +119,18 @@ class Thesaurus(rdflib.graph.Graph):
                  rdflib.Literal(old_freq+cpt_freq))
             )
 
+    def compute_number_of_descendants(self):
+        all_cpts = self.get_all_concepts()
+        depths = [(uri,
+                   len(list(self.triples((uri,
+                                          rdflib.namespace.SKOS.narrower * '+',
+                                          None)))))
+                  for uri in all_cpts]
+        for uri, depth in depths:
+            self.set((uri,
+                     self.num_descendants_predicate,
+                     rdflib.Literal(depth)))
+
     def query_and_add_cpt_frequencies(self, sparql_endpoint, cpt_freq_graph,
                                       server=None, pid=None, auth_data=None):
         self.query_thesaurus(pid=pid, server=server, auth_data=auth_data)
@@ -140,6 +159,51 @@ class Thesaurus(rdflib.graph.Graph):
             self.add(
                 (self.top_uri, rdflib.namespace.SKOS.narrower, top_cpt)
             )
+
+    def get_lca(self, set_of_uris):
+        uris = list({rdflib.URIRef(u) for u in set_of_uris})
+        if len(uris) == 1:
+            return uris[0]
+
+        paths_above = []
+        all_above = []
+        for uri in uris:
+            path = self.triples((uri,
+                                 rdflib.namespace.SKOS.broader * '+',
+                                 None))
+            path = [x[2] for x in path]
+            all_above += path
+            paths_above.append(path)
+
+        all_above = set(all_above)  # Stores all concepts above any of uris
+        inter = all_above.copy()
+        for path in paths_above:
+            inter = inter & set(path)
+
+        if len(inter) == 0:
+            return None
+
+        # Of all the common ancestors, we want to find the one which has as
+        # fewer narrowers as possible.
+        broadness = []
+        for uri in inter:
+            val = self.value(
+                          subject=uri,
+                          predicate=self.num_descendants_predicate,
+                          default=rdflib.Literal(-1)).value
+            # If we find no num_descendants triplet for this concept
+            # it means we haven't computed the descendants for this thesaurus
+            if val == -1:
+                self.compute_number_of_descendants()
+                val = self.value(
+                    subject=uri,
+                    predicate=self.num_descendants_predicate,
+                    default=rdflib.Literal(0)).value
+            broadness.append((uri, val))
+
+        broadness.sort(key=lambda x: x[1])
+
+        return broadness[0]
 
     def get_lcs(self, c1_uri, c2_uri):
         c1_uri = rdflib.URIRef(c1_uri)
