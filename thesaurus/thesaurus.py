@@ -15,9 +15,9 @@ class Thesaurus(rdflib.graph.Graph):
      `query_and_add_cpt_frequencies` method.
     """
 
-own_freq_predicate = rdflib.URIRef(':own_frequency')
-cum_freq_predicate = rdflib.URIRef(':cum_frequency')
-num_descendants_predicate = rdflib.URIRef(':numDescendants')
+    own_freq_predicate = rdflib.URIRef(':own_frequency')
+    cum_freq_predicate = rdflib.URIRef(':cum_frequency')
+    num_descendants_predicate = rdflib.URIRef(':numDescendants')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
