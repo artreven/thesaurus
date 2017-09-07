@@ -21,14 +21,27 @@ class Thesaurus(rdflib.graph.Graph):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        uriref = rdflib.URIRef(':T')
-        self.add([uriref,
+        top_uri = rdflib.URIRef(':T')
+        self.add([top_uri,
                   rdflib.namespace.SKOS.prefLabel,
                   rdflib.Literal(':T')])
-        self.add([uriref,
+        self.add([top_uri,
                   rdflib.namespace.RDF.type,
                   rdflib.namespace.SKOS.Concept])
-        self.top_uri = uriref
+        scheme_uri = rdflib.URIRef(':scheme')
+        self.add((scheme_uri,
+                  rdflib.namespace.RDF.type,
+                  rdflib.namespace.SKOS.ConceptScheme))
+        self.add([scheme_uri,
+                  rdflib.namespace.SKOS.prefLabel,
+                  rdflib.Literal(':scheme')])
+        self.add((top_uri,
+                  rdflib.namespace.SKOS.topConceptOf,
+                  scheme_uri))
+        self.add((scheme_uri,
+                  rdflib.namespace.SKOS.hasTopConcept,
+                  top_uri))
+        self.top_uri = top_uri
 
     def get_all_concepts(self):
         s_pl = self.triples((None,
@@ -161,6 +174,7 @@ class Thesaurus(rdflib.graph.Graph):
             )
 
     def get_lca(self, set_of_uris):
+        # TODO: check the relation to get_lcs, leave just one method!
         uris = list({rdflib.URIRef(u) for u in set_of_uris})
         if len(uris) == 1:
             return uris[0]
