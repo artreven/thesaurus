@@ -41,7 +41,7 @@ class TestTopicMatrices:
         top = self.the.top_uri
         own_freq = self.the.get_own_freq(top)
         cum_freq = self.the.get_cumulative_freq(top)
-        assert own_freq == 0
+        assert own_freq == 1
         assert cum_freq > 0
         assert any(
             self.the.get_cumulative_freq(cpt) > self.the.get_own_freq(cpt)
