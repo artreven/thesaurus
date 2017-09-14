@@ -19,12 +19,12 @@ class Thesaurus(rdflib.graph.Graph):
     cum_freq_predicate = rdflib.URIRef(':cum_frequency')
     num_descendants_predicate = rdflib.URIRef(':numDescendants')
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, lang='en', *args, **kwargs):
         super().__init__(*args, **kwargs)
         top_uri = rdflib.URIRef(':T')
         self.add([top_uri,
                   rdflib.namespace.SKOS.prefLabel,
-                  rdflib.Literal(':T')])
+                  rdflib.Literal(':T', lang=lang)])
         self.add([top_uri,
                   rdflib.namespace.RDF.type,
                   rdflib.namespace.SKOS.Concept])
@@ -34,7 +34,7 @@ class Thesaurus(rdflib.graph.Graph):
                   rdflib.namespace.SKOS.ConceptScheme))
         self.add([scheme_uri,
                   rdflib.namespace.SKOS.prefLabel,
-                  rdflib.Literal(':scheme')])
+                  rdflib.Literal(':scheme', lang=lang)])
         self.add((top_uri,
                   rdflib.namespace.SKOS.topConceptOf,
                   scheme_uri))
@@ -50,6 +50,20 @@ class Thesaurus(rdflib.graph.Graph):
         return {x[0] for x in s_pl}
 
     def get_all_concepts_and_labels(self, lang="en"):
+        s_pl = self.triples((None,
+                             rdflib.namespace.SKOS.prefLabel|rdflib.namespace.SKOS.altLabel|rdflib.namespace.SKOS.hiddenLabel,
+                             None))
+        uri_labels = [(str(x[0]), str(x[2]))
+                      for x in s_pl if x[2].language == lang]
+        uri2labels = dict()
+        for uri, label in uri_labels:
+            try:
+                uri2labels[uri].append(label)
+            except KeyError:
+                uri2labels[uri] = [label]
+        return uri2labels
+
+    def get_all_concepts_and_pref_labels(self, lang="en"):
         s_pl = self.triples((None,
                              rdflib.namespace.SKOS.prefLabel,
                              None))
@@ -114,7 +128,7 @@ class Thesaurus(rdflib.graph.Graph):
         else:
             path = {x[0] for x in path}
         old_freq = self.value(
-            subject=cpt_uri, predicate=self.own_freq_predicate, default=0
+            subject=cpt_uri, predicate=self.own_freq_predicate, default=1
         )
         self.set(
             (cpt_uri,
@@ -124,7 +138,7 @@ class Thesaurus(rdflib.graph.Graph):
         for uri in path:
             uriref = rdflib.URIRef(uri)
             old_freq = self.value(
-                subject=uriref, predicate=self.cum_freq_predicate, default=0
+                subject=uriref, predicate=self.cum_freq_predicate, default=1
             )
             self.set(
                 (uriref,
@@ -256,7 +270,7 @@ class Thesaurus(rdflib.graph.Graph):
         return self.value(
             subject=c_uri,
             predicate=self.cum_freq_predicate,
-            default=rdflib.Literal(0)
+            default=rdflib.Literal(1)
         ).value
 
     def get_own_freq(self, c_uri):
@@ -264,7 +278,7 @@ class Thesaurus(rdflib.graph.Graph):
         return self.value(
             subject=c_uri,
             predicate=self.own_freq_predicate,
-            default=rdflib.Literal(0)
+            default=rdflib.Literal(1)
         ).value
 
     def get_lin_similarity(self, c1_uri, c2_uri):
@@ -275,7 +289,7 @@ class Thesaurus(rdflib.graph.Graph):
         lcs, lcs_freq = self.get_lcs(c1_uri, c2_uri)
         c1_freq = self.get_cumulative_freq(c1_uri)
         c2_freq = self.get_cumulative_freq(c2_uri)
-        if lcs is None or c1_freq == 0 or c2_freq == 0:
+        if lcs is None:
             return 0
         else:
             top_freq = self.get_cumulative_freq(self.top_uri)
