@@ -198,6 +198,8 @@ class Thesaurus(rdflib.graph.Graph):
             lcs, freq = min(cs.items(),
                             key=lambda x: x[1],
                             default=[None, rdflib.Literal(float('Inf'))])
+        if isinstance(freq, int):
+            return lcs, freq
         return lcs, freq.value
 
     def get_cumulative_freq(self, c_uri):
