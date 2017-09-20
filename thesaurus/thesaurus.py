@@ -43,10 +43,10 @@ class Thesaurus(rdflib.graph.Graph):
         self.top_uri = top_uri
 
     def get_all_concepts(self):
-        s_pl = self.triples((None,
-                             rdflib.namespace.RDF.type,
-                             rdflib.namespace.SKOS.Concept))
-        return {x[0] for x in s_pl}
+        s_uri = self.triples((None,
+                              rdflib.namespace.RDF.type,
+                              rdflib.namespace.SKOS.Concept))
+        return {x[0] for x in s_uri}
 
     def get_all_concepts_and_labels(self, lang="en"):
         s_pl = self.triples((None,
@@ -177,7 +177,7 @@ class Thesaurus(rdflib.graph.Graph):
             lcs = c1_uri
             freq = self.value(subject=c1_uri,
                               predicate=self.cum_freq_predicate,
-                              default=rdflib.Literal(0))
+                              default=rdflib.Literal(1))
         else:
             path1 = self.triples((
                 c1_uri,
@@ -197,20 +197,29 @@ class Thesaurus(rdflib.graph.Graph):
             }
             lcs, freq = min(cs.items(),
                             key=lambda x: x[1],
-                            default=[None, rdflib.Literal(float('Inf'))])
-        if isinstance(freq, int):
-            return lcs, freq
-        return lcs, freq.value
+                            default=[None, float('Inf')])
+        return lcs, freq
 
     def get_cumulative_freq(self, c_uri):
         c_uri = rdflib.URIRef(c_uri)
         return self.value(
             subject=c_uri,
             predicate=self.cum_freq_predicate,
-            default=rdflib.Literal(len(set(self.triples((c_uri,
-                                                         rdflib.namespace.SKOS.narrower * '*',
-                                                         None)))))
+            # default=rdflib.Literal(len(set(self.triples((c_uri,
+            #                                              rdflib.namespace.SKOS.narrower * '*',
+            #                                              None)))))
         ).value
+
+    def precompute_number_children(self):
+        all_cpts = self.get_all_concepts()
+        for cpt in all_cpts:
+            c_uri = rdflib.URIRef(cpt)
+            n_children = rdflib.Literal(len(set(self.triples(
+                (c_uri, rdflib.namespace.SKOS.narrower * '*', None)
+            ))))
+            self.set(
+                (rdflib.URIRef(cpt), self.cum_freq_predicate, n_children)
+            )
 
     def get_own_freq(self, c_uri):
         c_uri = rdflib.URIRef(c_uri)
@@ -234,10 +243,10 @@ class Thesaurus(rdflib.graph.Graph):
             top_freq = self.get_cumulative_freq(self.top_uri)
             p1 = np.log(c1_freq/top_freq)
             p2 = np.log(c2_freq/top_freq)
+            p_lcs = np.log(lcs_freq/top_freq)
             if p1 + p2 == 0:
                 return 1
-            score = (2 * np.log(lcs_freq/top_freq) /
-                     (p1 + p2))
+            score = (2 * p_lcs / (p1 + p2))
             assert 0. <= score <= 1, print(lcs, score)
             return score
 
