@@ -163,7 +163,7 @@ class Thesaurus(rdflib.graph.Graph):
             None,
             rdflib.namespace.SKOS.topConceptOf,
             None
-        ))}
+        )) if x[0] != self.top_uri}
         for top_cpt in top_cpts:
             self.add(
                 (top_cpt, rdflib.namespace.SKOS.broader, self.top_uri)
@@ -184,10 +184,6 @@ class Thesaurus(rdflib.graph.Graph):
     def get_lcs(self, c1_uri, c2_uri):
         c1_uri = rdflib.URIRef(c1_uri)
         c2_uri = rdflib.URIRef(c2_uri)
-        #
-        # if c2_uri in self.no_lcs_pairs[c1_uri]:
-        #     lcs, freq = self.top_uri, float('inf')
-        #
         if c1_uri == c2_uri:
             lcs = c1_uri
             freq = self.value(
