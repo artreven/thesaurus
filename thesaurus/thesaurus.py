@@ -1,8 +1,10 @@
 import numpy as np
+import os
 from collections import defaultdict
 
 import rdflib
 import requests
+import pickle
 
 import pp_api
 
@@ -117,7 +119,7 @@ class Thesaurus(rdflib.graph.Graph):
                 ])
             prev_uriref = uriref
 
-    def add_frequencies(self, cpt_uri, cpt_freq, path=None):
+    def add_frequencies(self, cpt_uri, cpt_freq, path=None, def_value=0):
         if path is None:
             uriref = rdflib.URIRef(cpt_uri)
             brs = {x[2] for x in self.triples((
@@ -128,15 +130,15 @@ class Thesaurus(rdflib.graph.Graph):
             path = brs
         else:
             path = {x[0] for x in path}
-        old_freq = self.get_own_freq(cpt_uri)
+        old_freq = self.get_own_freq(cpt_uri, def_value)
         self.set(
             (cpt_uri,
              self.own_freq_predicate,
-             rdflib.Literal(old_freq + cpt_freq))
+             rdflib.Literal(old_freq+cpt_freq))
         )
         for uri in path:
             uriref = rdflib.URIRef(uri)
-            old_freq = self.get_cumulative_freq(uriref)
+            old_freq = self.get_cumulative_freq(uriref, def_value)
             self.set(
                 (uriref,
                  self.cum_freq_predicate,
@@ -186,25 +188,16 @@ class Thesaurus(rdflib.graph.Graph):
         c2_uri = rdflib.URIRef(c2_uri)
         if c1_uri == c2_uri:
             lcs = c1_uri
-            freq = self.value(
-                subject=c1_uri,
-                predicate=self.cum_freq_predicate
-            ).value
+            freq = self.get_cumulative_freq(c1_uri)
         else:
             cpt_path1 = self.broaders(c1_uri)
             cpt_path2 = self.broaders(c2_uri)
             if c1_uri in cpt_path2:
                 lcs = c1_uri
-                freq = self.value(
-                    subject=c1_uri,
-                    predicate=self.cum_freq_predicate
-                ).value
+                freq = self.get_cumulative_freq(c1_uri)
             elif c2_uri in cpt_path1:
                 lcs = c2_uri
-                freq = self.value(
-                    subject=c2_uri,
-                    predicate=self.cum_freq_predicate
-                ).value
+                freq = self.get_cumulative_freq(c2_uri)
             else:
                 cs = {
                     x: self.get_cumulative_freq(x)
@@ -222,12 +215,13 @@ class Thesaurus(rdflib.graph.Graph):
             #         assert len(self.no_lcs_pairs[cpt2]) > 0, cpt_path1
         return lcs, freq
 
-    def get_cumulative_freq(self, c_uri):
+    def get_cumulative_freq(self, c_uri, def_value=1):
         c_uri = rdflib.URIRef(c_uri)
-        return self.value(
+        rdf_value = self.value(
             subject=c_uri,
             predicate=self.cum_freq_predicate
-        ).value
+        )
+        return rdf_value.value if rdf_value is not None else def_value
 
     def precompute_number_children(self):
         all_cpts = self.get_all_concepts()
@@ -240,13 +234,13 @@ class Thesaurus(rdflib.graph.Graph):
                 (rdflib.URIRef(cpt), self.cum_freq_predicate, n_children)
             )
 
-    def get_own_freq(self, c_uri):
+    def get_own_freq(self, c_uri, def_value=1):
         c_uri = rdflib.URIRef(c_uri)
-        return self.value(
+        rdf_value = self.value(
             subject=c_uri,
-            predicate=self.own_freq_predicate,
-            # default=rdflib.Literal(1)
-        ).value
+            predicate=self.own_freq_predicate
+        )
+        return rdf_value.value if rdf_value is not None else def_value
 
     def get_lin_similarity(self, c1_uri, c2_uri):
         if c1_uri == c2_uri:
@@ -269,6 +263,24 @@ class Thesaurus(rdflib.graph.Graph):
             assert 0. <= score <= 1, print(lcs, score)
             return score
 
+    def get_nx_graph(self, use_related=False):
+        import networkx as nx
+        G = nx.DiGraph()
+
+        nodes = [str(x) for x in self.get_all_concepts()]
+        G.add_nodes_from(nodes)
+        for edge in self.triples((None, rdflib.namespace.SKOS.broader, None)):
+            broader = str(edge[2])
+            narrower = str(edge[0])
+            G.add_edge(narrower, broader)
+        if use_related:
+            for edge in self.triples((None, rdflib.namespace.SKOS.related, None)):
+                left = str(edge[2])
+                right = str(edge[0])
+                G.add_edge(left, right, relation='related')
+                G.add_edge(right, left, relation='related')
+        return G
+
     def plot_layout(self):
         """
         Calculate and return positions of nodes in the taxonomy tree for 
@@ -276,16 +288,7 @@ class Thesaurus(rdflib.graph.Graph):
         
         :return: graph, positions of nodes 
         """
-        import networkx as nx
-        G = nx.DiGraph()
-
-        nodes = [self.get_pref_label(x).toPython()
-                 for x in self.get_all_concepts()]
-        G.add_nodes_from(nodes)
-        for edge in self.triples((None, rdflib.namespace.SKOS.broader, None)):
-            broader = self.get_pref_label(edge[0]).toPython()
-            narrower = self.get_pref_label(edge[2]).toPython()
-            G.add_edge(narrower, broader)
+        G = self.get_nx_graph()
         pos = nx.drawing.nx_agraph.graphviz_layout(
             G, prog='twopi', args='-Goverlap=scalexy -Nroot=true -Groot=:T'
         )
@@ -344,6 +347,105 @@ class Thesaurus(rdflib.graph.Graph):
             if cpt_freq > 0:
                 self.add_frequencies(cpt_uri, cpt_freq)
 
+    @classmethod
+    def get_the(cls, the_path, auth_data, server, pid,
+                sparql_endpoint=None, cpt_freq_graph=None, with_freqs=True,
+                **kwargs):
+        the = cls()
+        if os.path.exists(the_path):
+            with open(the_path, 'rb') as f:
+                the.parse(the_path, format='n3')
+        elif with_freqs:
+            the.query_and_add_cpt_frequencies(
+                auth_data=auth_data, server=server, pid=pid,
+                sparql_endpoint=sparql_endpoint, cpt_freq_graph=cpt_freq_graph
+            )
+            the.serialize(the_path, format='n3')
+        else:
+            the.query_thesaurus(pid=pid, server=server, auth_data=auth_data)
+            the.precompute_number_children()
+            the.serialize(the_path, format='n3')
+        return the
+
+
+def get_sim_dict(sim_dict_path, the, all_cpts=None, **kwargs):
+    """
+    Returns a dictionary whose keys are pairs of concepts, and whose values are
+    the Lin-similarity of said concepts. This is done using the thesaurus object
+    passed as parameter "the"
+    :param sim_dict_path:
+    :param the:
+    :param all_cpts:
+    :param kwargs:
+    :return:
+    """
+    from rdflib.namespace import SKOS
+    if os.path.exists(sim_dict_path):
+        with open(sim_dict_path, 'rb') as f:
+            sim_dict = pickle.load(f)
+    else:
+        if all_cpts == None:
+            all_cpts = the.get_all_concepts()
+        leaves = the.get_leaves()
+        all_cpts = list(leaves) + list(all_cpts - leaves)
+        sim_dict = dict()
+        lin0_score = defaultdict(set)
+        # logger.info('Leaves: {}'.format(len(leaves)))
+        top_cpts = [x[2] for x in the.triples(
+            (the.top_uri, SKOS.narrower, None)
+        )]
+        cpt_clusters = [
+            {
+                x[2] for x in
+            the.triples((top_cpt, SKOS.narrower * '*', None))
+            }
+            for top_cpt in top_cpts
+        ]
+        for i, cpt1 in enumerate(all_cpts):
+            cpt1_clusters = [cluster
+                             for cluster in cpt_clusters
+                             if cpt1 in cluster]
+            cpt_str1 = cpt1.toPython()
+            # start = time()
+            # logger.info('Start cpt: {}, cpt1 clusters: {}'.format(cpt_str1,
+            #                                                       len(
+            #                                                           cpt1_clusters)))
+            old_entries = {
+                cpt2.toPython(): sim_dict[cpt2.toPython()][cpt_str1]
+                for cpt2 in all_cpts[:(i - 1 if i > 0 else 0)]
+            }
+            sim_dict[cpt_str1] = old_entries
+            # logger.info(
+            #     'Old done in {:0.3f}, len: {}'.format(time() - start,
+            #                                           len(old_entries)))
+            # c = 0
+            # c2 = 0
+            for cpt2 in all_cpts[i:]:
+                cpt_str2 = cpt2.toPython()
+                if not any(cpt2 in cluster for cluster in cpt1_clusters):
+                    sim_dict[cpt_str1][cpt_str2] = 0
+                    # c2 += 1
+                elif cpt2 in lin0_score[cpt1] or cpt1 in lin0_score[cpt2]:
+                    sim_dict[cpt_str1][cpt_str2] = 0
+                    # c += 1
+                else:
+                    lin_score = the.get_lin_similarity(cpt1, cpt2)
+                    sim_dict[cpt_str1][cpt_str2] = lin_score
+                    if np.isclose(lin_score, 0):
+                        brs1 = the.broaders(cpt1) | {cpt1}
+                        brs2 = the.broaders(cpt2) | {cpt1}
+                        for ph in brs1:
+                            lin0_score[ph] |= brs2
+                        for ph in brs2:
+                            lin0_score[ph] |= brs1
+            # logger.info(
+            #     'New done in {:0.3f}, shortcut taken {} times, shortcut2 taken {} times'.format(
+            #         time() - start, c, c2))
+            sim_dict[cpt_str1][cpt_str1] = 1
+        with open(sim_dict_path, 'wb') as f:
+            pickle.dump(sim_dict, f)
+    return sim_dict
+
 
 def query_cpt_freqs(sparql_endpoint, cpt_occur_graph):
     q_cpts = """
@@ -369,7 +471,6 @@ def query_cpt_freqs(sparql_endpoint, cpt_occur_graph):
 
 if __name__ == '__main__':
     import networkx as nx
-    import os
     import matplotlib.pyplot as plt
     from pp_api.server_data.custom_apps import pid, server, \
         corpus_id, sparql_endpoint, pp_sparql_endpoint, p_name

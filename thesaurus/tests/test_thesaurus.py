@@ -1,9 +1,3 @@
-import rdflib
-import os
-
-from pp_api.server_data.custom_apps import pid, server, \
-        corpus_id, sparql_endpoint, pp_sparql_endpoint, p_name
-
 from thesaurus.thesaurus import *
 
 
