@@ -1,5 +1,6 @@
 import numpy as np
-import os
+import os, sys
+import time
 from collections import defaultdict
 
 import rdflib
@@ -401,12 +402,13 @@ def get_sim_dict(sim_dict_path, the, all_cpts=None, **kwargs):
             }
             for top_cpt in top_cpts
         ]
+        print("cpt clusters ",sys.getsizeof(cpt_clusters))
         for i, cpt1 in enumerate(all_cpts):
             cpt1_clusters = [cluster
                              for cluster in cpt_clusters
                              if cpt1 in cluster]
             cpt_str1 = cpt1.toPython()
-            # start = time()
+            start_time = time.time()
             # logger.info('Start cpt: {}, cpt1 clusters: {}'.format(cpt_str1,
             #                                                       len(
             #                                                           cpt1_clusters)))
@@ -438,6 +440,9 @@ def get_sim_dict(sim_dict_path, the, all_cpts=None, **kwargs):
                             lin0_score[ph] |= brs2
                         for ph in brs2:
                             lin0_score[ph] |= brs1
+            print(sys.getsizeof(lin0_score),
+                  sys.getsizeof(sim_dict),
+                  time.time() - start_time)
             # logger.info(
             #     'New done in {:0.3f}, shortcut taken {} times, shortcut2 taken {} times'.format(
             #         time() - start, c, c2))
