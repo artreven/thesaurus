@@ -1,12 +1,23 @@
 import numpy as np
 import os
 from collections import defaultdict
+from time import time
+import logging
+from functools import lru_cache
 
 import rdflib
+from rdflib.namespace import SKOS
 import requests
 import pickle
 
 import pp_api
+
+
+logging.basicConfig(format='%(name)s at %(asctime)s: %(message)s')
+log_level_str = os.environ.get('LOG_LEVEL', logging.WARNING)
+log_level = getattr(logging, str(log_level_str), logging.WARNING)
+logger = logging.getLogger(__name__)
+logger.setLevel(log_level)
 
 
 class Thesaurus(rdflib.graph.Graph):
@@ -174,6 +185,7 @@ class Thesaurus(rdflib.graph.Graph):
                 (self.top_uri, rdflib.namespace.SKOS.narrower, top_cpt)
             )
 
+    @lru_cache(maxsize=None)
     def broaders(self, cpt_uri):
         path = self.triples((
             cpt_uri,
@@ -206,15 +218,9 @@ class Thesaurus(rdflib.graph.Graph):
                 lcs, freq = min(cs.items(),
                                 key=lambda x: x[1],
                                 default=[self.top_uri, float('inf')])
-            # if lcs == self.top_uri and len(cpt_path1) and len(cpt_path2):
-            #     for cpt1 in (cpt_path1 | {c1_uri}):
-            #         self.no_lcs_pairs[cpt1] |= cpt_path2
-            #         assert len(self.no_lcs_pairs[cpt1]) > 0, cpt_path2
-            #     for cpt2 in (cpt_path2 | {c2_uri}):
-            #         self.no_lcs_pairs[cpt2] |= cpt_path1
-            #         assert len(self.no_lcs_pairs[cpt2]) > 0, cpt_path1
         return lcs, freq
 
+    @lru_cache(maxsize=None)
     def get_cumulative_freq(self, c_uri, def_value=1):
         c_uri = rdflib.URIRef(c_uri)
         rdf_value = self.value(
@@ -338,7 +344,6 @@ class Thesaurus(rdflib.graph.Graph):
                                        file_name,
                                        format='n3',
                                        **kwargs):
-
         cpt_freqs = query_cpt_freqs(sparql_endpoint, cpt_freq_graph)
         self.parse(file_name, format=format)
         for cpt_uri in cpt_freqs:
@@ -353,84 +358,79 @@ class Thesaurus(rdflib.graph.Graph):
                 **kwargs):
         the = cls()
         if os.path.exists(the_path):
+            logger.info('Thesaurus at {} exists, loading'.format(the_path))
             with open(the_path, 'rb') as f:
                 the.parse(the_path, format='n3')
         elif with_freqs:
+            logger.info('Querying thesaurus and frequencies')
             the.query_and_add_cpt_frequencies(
                 auth_data=auth_data, server=server, pid=pid,
                 sparql_endpoint=sparql_endpoint, cpt_freq_graph=cpt_freq_graph
             )
             the.serialize(the_path, format='n3')
         else:
+            logger.info('Querying thesaurus')
             the.query_thesaurus(pid=pid, server=server, auth_data=auth_data)
+            logger.info('Precomputing children')
             the.precompute_number_children()
             the.serialize(the_path, format='n3')
         return the
 
 
-def get_sim_dict(sim_dict_path, the, all_cpts=None, **kwargs):
+def get_sim_dict(sim_dict_path, the, **kwargs):
     """
     Returns a dictionary whose keys are pairs of concepts, and whose values are
     the Lin-similarity of said concepts. This is done using the thesaurus object
     passed as parameter "the"
     :param sim_dict_path:
     :param the:
-    :param all_cpts:
     :param kwargs:
     :return:
     """
-    from rdflib.namespace import SKOS
     if os.path.exists(sim_dict_path):
         with open(sim_dict_path, 'rb') as f:
-            sim_dict = pickle.load(f)
+            sim_dict, all_cpts = pickle.load(f)
     else:
-        if all_cpts == None:
-            all_cpts = the.get_all_concepts()
+        all_cpts = the.get_all_concepts()
         leaves = the.get_leaves()
         all_cpts = list(leaves) + list(all_cpts - leaves)
-        sim_dict = dict()
+        sim_dict = np.zeros((len(all_cpts), len(all_cpts)))
         lin0_score = defaultdict(set)
-        # logger.info('Leaves: {}'.format(len(leaves)))
+        logger.info('Leaves: {}'.format(len(leaves)))
         top_cpts = [x[2] for x in the.triples(
             (the.top_uri, SKOS.narrower, None)
         )]
         cpt_clusters = [
             {
-                x[2] for x in
-            the.triples((top_cpt, SKOS.narrower * '*', None))
+                x[2] for x in the.triples((top_cpt, SKOS.narrower * '*', None))
             }
             for top_cpt in top_cpts
         ]
+        logger.info('Total clusters: {}'.format(len(cpt_clusters)))
         for i, cpt1 in enumerate(all_cpts):
             cpt1_clusters = [cluster
                              for cluster in cpt_clusters
                              if cpt1 in cluster]
-            cpt_str1 = cpt1.toPython()
-            # start = time()
-            # logger.info('Start cpt: {}, cpt1 clusters: {}'.format(cpt_str1,
-            #                                                       len(
-            #                                                           cpt1_clusters)))
-            old_entries = {
-                cpt2.toPython(): sim_dict[cpt2.toPython()][cpt_str1]
-                for cpt2 in all_cpts[:(i - 1 if i > 0 else 0)]
-            }
-            sim_dict[cpt_str1] = old_entries
-            # logger.info(
-            #     'Old done in {:0.3f}, len: {}'.format(time() - start,
-            #                                           len(old_entries)))
-            # c = 0
-            # c2 = 0
-            for cpt2 in all_cpts[i:]:
-                cpt_str2 = cpt2.toPython()
+            # cpt_str1 = cpt1.toPython()
+            start = time()
+            logger.info('Start cpt: {} {}, cpt1 clusters: {}'.format(
+                i, cpt1, len(cpt1_clusters))
+            )
+            for j in range(i - 1 if i > 0 else 0):
+                sim_dict[i, j] = sim_dict[j, i]
+            c = 0
+            c2 = 0
+            for j, cpt2 in enumerate(all_cpts[i:]):
+                # cpt_str2 = cpt2.toPython()
                 if not any(cpt2 in cluster for cluster in cpt1_clusters):
-                    sim_dict[cpt_str1][cpt_str2] = 0
-                    # c2 += 1
+                    sim_dict[i, j] = 0
+                    c2 += 1
                 elif cpt2 in lin0_score[cpt1] or cpt1 in lin0_score[cpt2]:
-                    sim_dict[cpt_str1][cpt_str2] = 0
-                    # c += 1
+                    sim_dict[i, j] = 0
+                    c += 1
                 else:
                     lin_score = the.get_lin_similarity(cpt1, cpt2)
-                    sim_dict[cpt_str1][cpt_str2] = lin_score
+                    sim_dict[i, j] = lin_score
                     if np.isclose(lin_score, 0):
                         brs1 = the.broaders(cpt1) | {cpt1}
                         brs2 = the.broaders(cpt2) | {cpt1}
@@ -438,13 +438,14 @@ def get_sim_dict(sim_dict_path, the, all_cpts=None, **kwargs):
                             lin0_score[ph] |= brs2
                         for ph in brs2:
                             lin0_score[ph] |= brs1
-            # logger.info(
-            #     'New done in {:0.3f}, shortcut taken {} times, shortcut2 taken {} times'.format(
-            #         time() - start, c, c2))
-            sim_dict[cpt_str1][cpt_str1] = 1
+                # logger.info('Concept {}, took {:0.3f}'.format(j, time() - start_j))
+            logger.info(
+                'New done in {:0.3f}, shortcut taken {} times, shortcut2 taken {} times'.format(
+                    time() - start, c, c2))
+            sim_dict[i, i] = 1
         with open(sim_dict_path, 'wb') as f:
-            pickle.dump(sim_dict, f)
-    return sim_dict
+            pickle.dump((sim_dict, all_cpts), f)
+    return sim_dict, all_cpts
 
 
 def query_cpt_freqs(sparql_endpoint, cpt_occur_graph):
