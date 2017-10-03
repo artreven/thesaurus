@@ -65,21 +65,28 @@ def get_broader_transitive_graph(the, use_related=True):
     return G_closed
 
 
-def get_hierarchical_inconsistency_matrix(the):
+def get_hierarchical_inconsistency_matrix(the, nodelist=None):
     G = get_broader_transitive_graph(the, False)
-    inconsistent_with_related = adjacency_matrix(G)
+    if nodelist is None:
+        nodes = G.nodes()
+    else:
+        nodes = nodelist
+    inconsistent_with_related = adjacency_matrix(G, nodelist=nodes)
     inconsistent = np.zeros(inconsistent_with_related.shape)
     nnz = inconsistent_with_related.nonzero()
     for cnt in range(len(nnz[0])):
         i, j = nnz[0][cnt], nnz[1][cnt]
         inconsistent[j, i] = -1
         inconsistent_with_related[i, j] = -1
-    return inconsistent, inconsistent_with_related, G.nodes()
+    return inconsistent, inconsistent_with_related, nodes
 
 
-def get_related_inconsistency_matrix(the):
+def get_related_inconsistency_matrix(the, nodelist=None):
     G = get_broader_transitive_graph(the, use_related=False)
-    nodes = G.nodes()
+    if nodelist is None:
+        nodes = G.nodes()
+    else:
+        nodes = nodelist
     hierarchical_mx = adjacency_matrix(G, nodelist=nodes)
     G = the.get_nx_graph(use_related=True)
     G.remove_edges_from([edge for edge in G.edges(data=True) if not edge[2]])
@@ -146,7 +153,7 @@ if __name__ == '__main__':
     print(len(G.edges())) # 872 (no relateds)
     print(len(G.nodes()))
 
-    assert adjacency_matrix(G).nnz == 872
+    # assert adjacency_matrix(G).nnz == 872
     # print(incidence_matrix(G, oriented=True))
 
 
@@ -172,6 +179,6 @@ if __name__ == '__main__':
     }
     print(len(br2rel_map))
 
-    # G2 = get_cooc_graph(sparql_endpoint, cpt_occur_graph_id)
+    G2 = get_cooc_graph(sparql_endpoint, cpt_occur_graph_id)
     # print(len(G2.edges()))
     # print(len(G2.nodes()))
