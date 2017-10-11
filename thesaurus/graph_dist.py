@@ -6,7 +6,7 @@ import networkx as nx
 from networkx.linalg import adjacency_matrix
 
 import pp_api
-from thesaurus import Thesaurus
+from thesaurus.thesaurus import Thesaurus
 
 swc_onto = rdflib.Namespace('http://schema.semantic-web.at/ppcm/2013/5/')
 
@@ -101,6 +101,7 @@ def get_related_inconsistency_matrix(the, nodelist=None):
         for br_j in hierarchical_mx[j].nonzero()[1]:
             inconsistent[br_j, i] = -1
     return inconsistent, nodes
+
 
 
 def get_k2i(nodelist):

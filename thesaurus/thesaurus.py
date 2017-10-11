@@ -271,6 +271,11 @@ class Thesaurus(rdflib.graph.Graph):
             return score
 
     def get_nx_graph(self, use_related=False):
+        """
+        The returned graph contains an edge (u,v)  if u is narrower than v
+        :param use_related: 
+        :return: 
+        """
         import networkx as nx
         G = nx.DiGraph()
 
@@ -390,7 +395,12 @@ def get_sim_dict(sim_dict_path, the, **kwargs):
     """
     if os.path.exists(sim_dict_path):
         with open(sim_dict_path, 'rb') as f:
-            sim_dict, all_cpts = pickle.load(f)
+            unpiclked = pickle.load(f)
+            if len(unpiclked) == 2:
+                sim_dict, all_cpts = unpiclked
+            else:
+                sim_dict = unpiclked
+                all_cpts = the.get_all_concepts()
     else:
         all_cpts = the.get_all_concepts()
         leaves = the.get_leaves()
