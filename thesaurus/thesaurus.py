@@ -5,12 +5,11 @@ from collections import defaultdict
 from time import time
 import logging
 from functools import lru_cache
-
 import rdflib
 from rdflib.namespace import SKOS
 import requests
 import pickle
-
+import scipy
 import pp_api
 
 
@@ -405,7 +404,7 @@ def get_sim_dict(sim_dict_path, the, **kwargs):
         all_cpts = the.get_all_concepts()
         leaves = the.get_leaves()
         all_cpts = list(leaves) + list(all_cpts - leaves)
-        sim_dict = np.zeros((len(all_cpts), len(all_cpts)))
+        sim_dict = np.eye(len(all_cpts))
         lin0_score = defaultdict(set)
         logger.info('Leaves: {}'.format(len(leaves)))
         top_cpts = [x[2] for x in the.triples(
@@ -453,7 +452,9 @@ def get_sim_dict(sim_dict_path, the, **kwargs):
             logger.info(
                 'New done in {:0.3f}, shortcut taken {} times, shortcut2 taken {} times'.format(
                     time() - start, c, c2))
-            sim_dict[i, i] = 1
+
+        sim_dict = scipy.sparse.coo_matrix(sim_dict)
+        all_cpts = [str(x) for x in all_cpts]
         with open(sim_dict_path, 'wb') as f:
             pickle.dump((sim_dict, all_cpts), f)
     return sim_dict, all_cpts
