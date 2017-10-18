@@ -9,7 +9,7 @@ import rdflib
 from rdflib.namespace import SKOS
 import requests
 import pickle
-import scipy
+import scipy, scipy.sparse
 import pp_api
 
 
