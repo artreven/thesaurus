@@ -65,22 +65,34 @@ def get_broader_transitive_graph(the, use_related=True):
     return G_closed
 
 
+# Edges that can't be related
 def get_hierarchical_inconsistency_matrix(the, nodelist=None):
     G = get_broader_transitive_graph(the, False)
     if nodelist is None:
         nodes = G.nodes()
     else:
         nodes = nodelist
+    # All those which are hierarchical can't be related
     inconsistent_with_related = adjacency_matrix(G, nodelist=nodes)
+    inconsistent_with_related += inconsistent_with_related.T
     inconsistent = np.zeros(inconsistent_with_related.shape)
     nnz = inconsistent_with_related.nonzero()
     for cnt in range(len(nnz[0])):
         i, j = nnz[0][cnt], nnz[1][cnt]
         inconsistent[j, i] = -1
         inconsistent_with_related[i, j] = -1
+
+    # Those which are already related, can't be marked as related
+    G = the.get_nx_graph(use_related=True)
+    G.remove_edges_from([edge for edge in G.edges(data=True) if not edge[2]])
+    related_mx = adjacency_matrix(G, nodelist=nodes)
+    related_mx += related_mx.T
+    inconsistent_with_related[np.nonzero(related_mx)] = -1
+
     return inconsistent, inconsistent_with_related, nodes
 
 
+# Edges that can't be hierarchical
 def get_related_inconsistency_matrix(the, nodelist=None):
     G = get_broader_transitive_graph(the, use_related=False)
     if nodelist is None:
@@ -88,18 +100,23 @@ def get_related_inconsistency_matrix(the, nodelist=None):
     else:
         nodes = nodelist
     hierarchical_mx = adjacency_matrix(G, nodelist=nodes)
+    hierarchical_mx += hierarchical_mx.T
     G = the.get_nx_graph(use_related=True)
     G.remove_edges_from([edge for edge in G.edges(data=True) if not edge[2]])
     related_mx = adjacency_matrix(G, nodelist=nodes)
+    related_mx += related_mx.T
 
     inconsistent = np.zeros(hierarchical_mx.shape)
     nnz = related_mx.nonzero()
     for cnt in range(len(nnz[0])):
         i, j = nnz[0][cnt], nnz[1][cnt]
-        for br_i in hierarchical_mx[i].nonzero()[1]:
+        inconsistent[i, j] = -1
+        for br_i in hierarchical_mx[i, :].nonzero()[1]:
             inconsistent[br_i, j] = -1
-        for br_j in hierarchical_mx[j].nonzero()[1]:
+        for br_j in hierarchical_mx[j, :].nonzero()[1]:
             inconsistent[br_j, i] = -1
+
+    inconsistent[np.nonzero(hierarchical_mx)] = -1
     return inconsistent, nodes
 
 

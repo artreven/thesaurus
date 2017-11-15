@@ -383,6 +383,28 @@ class Thesaurus(rdflib.graph.Graph):
         return the
 
 
+def create_matrix_from_dict(sim_dict, the):
+    """
+    Compatilibity between the two versions of the similarity dictionary pickle
+    :param sim_dict: 
+    :param the: 
+    :return: 
+    """
+    all_cpts = the.get_all_concepts()
+    leaves = the.get_leaves()
+    all_cpts = list(leaves) + list(all_cpts - leaves)
+    sim_matrix = np.eye(len(all_cpts))
+    for i, cpt1 in enumerate(all_cpts):
+        if i not in sim_dict.keys():
+            continue
+        for j, cpt2 in enumerate(all_cpts):
+            if j not in sim_dict[i].keys():
+                continue
+            sim_matrix[i, j] = sim_dict[i][j]
+
+    return sim_matrix, all_cpts
+
+
 def get_sim_dict(sim_dict_path, the, **kwargs):
     """
     Returns a dictionary whose keys are pairs of concepts, and whose values are
@@ -391,7 +413,11 @@ def get_sim_dict(sim_dict_path, the, **kwargs):
     :param sim_dict_path:
     :param the:
     :param kwargs:
-    :return:
+    :return: sim_dict a sparse matrix whose i,j entry stores the similarity 
+                      between concepts i and j
+             all_cpts a list of URIs, that specifies the order in which the 
+                      concepts are considered for sim_dict matrix.
+              
     """
     if os.path.exists(sim_dict_path):
         with open(sim_dict_path, 'rb') as f:
@@ -399,8 +425,8 @@ def get_sim_dict(sim_dict_path, the, **kwargs):
             if len(unpiclked) == 2:
                 sim_dict, all_cpts = unpiclked
             else:
-                sim_dict = unpiclked
-                all_cpts = the.get_all_concepts()
+                sim_dict, all_cpts = create_matrix_from_dict(unpiclked, the)
+
     else:
         all_cpts = the.get_all_concepts()
         leaves = the.get_leaves()
