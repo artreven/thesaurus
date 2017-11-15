@@ -167,10 +167,11 @@ class Thesaurus(rdflib.graph.Graph):
                 self.add_frequencies(cpt_uri, cpt_freq)
 
     def query_thesaurus(self, pid, server, auth_data):
-        r = pp_api.export_project(
-            pid=pid, server=server,
+        pp = pp_api.PoolParty(
+            server=server,
             auth_data=auth_data
         )
+        r = pp.export_project(pid=pid)
         self.parse(data=r, format='n3')
         top_cpts = {x[0] for x in self.triples((
             None,
@@ -360,9 +361,9 @@ class Thesaurus(rdflib.graph.Graph):
     @classmethod
     def get_the(cls, the_path, auth_data, server, pid,
                 sparql_endpoint=None, cpt_freq_graph=None, with_freqs=True,
-                **kwargs):
+                refresh=False, **kwargs):
         the = cls()
-        if os.path.exists(the_path):
+        if os.path.exists(the_path) and not refresh:
             logger.info('Thesaurus at {} exists, loading'.format(the_path))
             with open(the_path, 'rb') as f:
                 the.parse(the_path, format='n3')
