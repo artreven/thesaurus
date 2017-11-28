@@ -67,8 +67,9 @@ class Thesaurus(rdflib.graph.Graph):
         s_pl = self.triples((None,
                              rdflib.namespace.SKOS.prefLabel|rdflib.namespace.SKOS.altLabel|rdflib.namespace.SKOS.hiddenLabel,
                              None))
-        uri_labels = [(str(x[0]), str(x[2]))
-                      for x in s_pl if x[2].language == lang]
+        uri_labels = [(str(x[0]), str(x[2])) for x in s_pl
+                      if x[2].language == lang
+                      if not str(x[2]).startswith(':')]
         uri2labels = dict()
         for uri, label in uri_labels:
             try:
@@ -81,7 +82,9 @@ class Thesaurus(rdflib.graph.Graph):
         s_pl = self.triples((None,
                              rdflib.namespace.SKOS.prefLabel,
                              None))
-        return {str(x[0]): str(x[2]) for x in s_pl if x[2].language == lang}
+        return {str(x[0]): str(x[2]) for x in s_pl
+                if x[2].language == lang
+                if not str(x[2]).startswith(':')}
 
     def get_leaves(self):
         brs = {x[2] for x in self.triples((
@@ -421,11 +424,11 @@ def get_sim_dict(sim_dict_path, the, **kwargs):
     """
     if os.path.exists(sim_dict_path):
         with open(sim_dict_path, 'rb') as f:
-            unpiclked = pickle.load(f)
-            if len(unpiclked) == 2:
-                sim_dict, all_cpts = unpiclked
+            unpickled = pickle.load(f)
+            if len(unpickled) == 2:
+                sim_dict, all_cpts = unpickled
             else:
-                sim_dict, all_cpts = create_matrix_from_dict(unpiclked, the)
+                sim_dict, all_cpts = create_matrix_from_dict(unpickled, the)
 
     else:
         all_cpts = the.get_all_concepts()
