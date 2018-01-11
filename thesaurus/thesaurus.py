@@ -63,6 +63,16 @@ class Thesaurus(rdflib.graph.Graph):
                               rdflib.namespace.SKOS.Concept))
         return {x[0] for x in s_uri}
 
+    def get_labels(self, cpt_uri, lang='en'):
+        labels = self[rdflib.URIRef(cpt_uri):
+                      (rdflib.namespace.SKOS.prefLabel|
+                       rdflib.namespace.SKOS.altLabel|
+                       rdflib.namespace.SKOS.hiddenLabel):]
+        labels = [str(x) for x in labels
+                  if x.language == lang
+                  if not str(x).startswith(':')]
+        return labels
+
     def get_all_concepts_and_labels(self, lang="en"):
         s_pl = self.triples((None,
                              rdflib.namespace.SKOS.prefLabel|rdflib.namespace.SKOS.altLabel|rdflib.namespace.SKOS.hiddenLabel,
@@ -95,9 +105,9 @@ class Thesaurus(rdflib.graph.Graph):
         leaves = set(self.get_all_concepts()) - brs
         return leaves
 
-    def get_pref_label(self, uri):
-        pl = self.value(rdflib.URIRef(uri), rdflib.namespace.SKOS.prefLabel)
-        return pl
+    # def get_pref_label(self, uri):
+    #     pl = self.value(rdflib.URIRef(uri), rdflib.namespace.SKOS.prefLabel)
+    #     return pl
 
     def add_path(self, path):
         prev_uriref = None
