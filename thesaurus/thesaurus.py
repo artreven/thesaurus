@@ -11,6 +11,7 @@ import requests
 import pickle
 import scipy, scipy.sparse
 import pp_api
+from datetime import datetime
 
 
 logging.basicConfig(format='%(name)s at %(asctime)s: %(message)s')
@@ -394,6 +395,21 @@ class Thesaurus(rdflib.graph.Graph):
             the.precompute_number_children()
             the.serialize(the_path, format='n3')
         return the
+
+    @classmethod
+    def check_outdated(cls, the_path, pp, pid):
+        """
+        Check if a newer version is available at the server.
+
+        :param the_path: path to the thesaurus file
+        :param pp: PoolParty instance from github.com/artreven/pp_api
+        :param pid: project id
+        :return: Boolean
+        """
+        modified_unix = os.path.getmtime(the_path)
+        modified_datetime = datetime.utcfromtimestamp(modified_unix)
+        history = pp.get_history(pid=pid, from_=modified_datetime)
+        return history if history else False
 
 
 def create_matrix_from_dict(sim_dict, the):
